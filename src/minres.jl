@@ -99,11 +99,11 @@ function iterate(m::MINRESIterable, iteration::Int=start(m))
     if done(m, iteration)
         return nothing
     end
-
+    
     # v_next = A * v_curr - H[2] * v_prev
     mul!(m.v_next, m.A, m.v_curr)
 
-    iteration > 1 && axpy!(-m.H[2], m.v_prev, m.v_next)
+    # iteration > 1 && axpy!(-m.H[2], m.v_prev, m.v_next)
 
     # Orthogonalize w.r.t. v_curr
     proj = dot(m.v_curr, m.v_next)
@@ -114,18 +114,18 @@ function iterate(m::MINRESIterable, iteration::Int=start(m))
     m.H[4] = norm(m.v_next)
     rmul!(m.v_next, inv(m.H[4]))
 
-    # Rotation on H[1] and H[2]. Note that H[1] = 0 initially
-    if iteration > 2
-        m.H[1] = m.s_prev * m.H[2]
-        m.H[2] = m.c_prev * m.H[2]
-    end
+    # # Rotation on H[1] and H[2]. Note that H[1] = 0 initially
+    # if iteration > 2
+    #     m.H[1] = m.s_prev * m.H[2]
+    #     m.H[2] = m.c_prev * m.H[2]
+    # end
 
-    # Rotation on H[2] and H[3]
-    if iteration > 1
-        tmp = -conj(m.s_curr) * m.H[2] + m.c_curr * m.H[3]
-        m.H[2] = m.c_curr * m.H[2] + m.s_curr * m.H[3]
-        m.H[3] = tmp
-    end
+    # # Rotation on H[2] and H[3]
+    # if iteration > 1
+    #     tmp = -conj(m.s_curr) * m.H[2] + m.c_curr * m.H[3]
+    #     m.H[2] = m.c_curr * m.H[2] + m.s_curr * m.H[3]
+    #     m.H[3] = tmp
+    # end
 
     # Next rotation
     c, s, m.H[3] = givensAlgorithm(m.H[3], m.H[4])
@@ -156,6 +156,83 @@ function iterate(m::MINRESIterable, iteration::Int=start(m))
     m.resnorm = abs(m.rhs[2])
 
     m.resnorm, iteration + 1
+end
+
+function minres_abs!(x, A, b; maxiter = size(A, 2))
+
+
+    T = eltype(x)
+    HessenbergT = real(T)
+
+    v_curr = similar(x)
+    copyto!(v_curr, b)
+    v_next = similar(x)
+
+    # Use v_next to store Ax; v_next will soon be overwritten.
+    mul!(v_next, A, x)
+    axpy!(-one(T), v_next, v_curr)
+
+    resnorm = norm(v_curr)
+    proj = dot(v_curr, v_next)
+
+    # Last active column of the Hessenberg matrix
+    # and last two entries of the right-hand side
+    H = zeros(HessenbergT, 4)
+    rhs = [resnorm; zero(HessenbergT)]
+
+    # Normalize the first Krylov basis vector
+    rmul!(v_curr, inv(resnorm))
+
+    # # Givens rotations
+    # c_prev, s_prev = one(T), zero(T)
+    # c_curr, s_curr = one(T), zero(T)
+
+    for i in 1:maxiter
+
+        if i > 1
+            copyto!(v_curr, b)
+            # copyto!(x, abs.(x))
+            @. x = abs(x)
+            mul!(v_next, A, x)
+            axpy!(-one(T), v_next, v_curr)
+        
+            resnorm = norm(v_curr)
+        
+            # Last active column of the Hessenberg matrix
+            # and last two entries of the right-hand side
+            rhs = [resnorm; zero(HessenbergT)]
+        
+            # Normalize the first Krylov basis vector
+            rmul!(v_curr, inv(resnorm))
+        end
+
+        mul!(v_next, A, v_curr)
+
+        # Orthogonalize w.r.t. v_curr
+        proj = dot(v_curr, v_next)
+        H[3] = real(proj)
+        axpy!(-proj, v_curr, v_next)
+
+        # Normalize
+        H[4] = norm(v_next)
+        rmul!(v_next, inv(H[4]))
+
+        # Next rotation
+        c, s, H[3] = givensAlgorithm(H[3], H[4])
+
+        # Apply as well to the right-hand side
+        rhs[2] = -conj(s) * rhs[1]
+        rhs[1] = c * rhs[1]
+
+        # Update W = V * inv(R). Two axpy's can maybe be one MV.
+        rmul!(v_curr, inv(H[3]))
+
+        # Update solution x
+        axpy!(rhs[1], v_curr, x)
+        H .= 0
+
+    end
+
 end
 
 """

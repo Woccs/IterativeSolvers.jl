@@ -154,6 +154,57 @@ function cg_iterator!(x, A, b, Pl = Identity();
     end
 end
 
+function cg_abs!(x, A, b; maxiter::Int = size(A, 2))
+
+
+    u = zero(x)
+    r = similar(x)
+    c = similar(x)
+    copyto!(r, b)
+
+    mul!(c, A, x)
+    r .-= c
+
+    residual = norm(r)
+
+    for i in 1:maxiter 
+        # u := r + βu (almost an axpy)
+        β = residual^2
+        u .= r .+ β .* u
+    
+        # c = A * u
+        mul!(c, A, u)
+        α = residual^2 / dot(u, c)
+    
+        # Improve solution and residual
+        x .+= α .* u
+        if i > 1
+            u .= zero(eltype(x))
+            r .= b
+            x .= abs.(x)
+            mul!(c, A, x)
+            r .-= c
+            residual = norm(r)
+        end
+        
+        ############################################################
+
+        # β = it.residual^2 / it.prev_residual^2
+        # it.u .= it.r .+ β .* it.u
+
+        # mul!(it.c, it.A, it.u)
+        # α = it.residual^2 / dot(it.u, it.c)
+
+        # it.x .+= α .* it.u
+        # it.r .-= α .* it.c
+    
+        # it.prev_residual = it.residual
+        # it.residual = norm(it.r)
+
+        # it.residual, iteration + 1
+    end
+end
+
 """
     cg(A, b; kwargs...) -> x, [history]
 
